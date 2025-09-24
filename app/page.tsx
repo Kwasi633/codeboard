@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Download, Copy, Settings, Globe, Palette, Upload, Sparkles } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
+import { highlightCode, highlightCodeSync, renderHighlightedCode, getTokenColor, type HighlightedLine } from '@/lib/syntax-highlighter';
 
 const themes = [
   { name: 'Dracula', bg: '#282a36', text: '#f8f8f2' },
@@ -27,6 +28,27 @@ const windowStyles = [
   { name: 'None', dots: null },
 ];
 
+// Helper function to get file extension for languages
+const getFileExtension = (language: string): string => {
+  const extensions: { [key: string]: string } = {
+    'JavaScript': 'js',
+    'TypeScript': 'ts',
+    'Python': 'py',
+    'Java': 'java',
+    'C++': 'cpp',
+    'Go': 'go',
+    'Rust': 'rs',
+    'PHP': 'php',
+    'Ruby': 'rb',
+    'HTML': 'html',
+    'CSS': 'css',
+    'SQL': 'sql',
+    'Shell': 'sh',
+    'JSON': 'json'
+  };
+  return extensions[language] || 'txt';
+};
+
 export default function CodeBoard() {
   const [code, setCode] = useState(`function generateBeautifulCode() {
   const magic = ['creativity', 'innovation', 'elegance'];
@@ -42,7 +64,10 @@ export default function CodeBoard() {
   const [selectedLanguage, setSelectedLanguage] = useState('JavaScript');
   const [selectedWindow, setSelectedWindow] = useState(windowStyles[0]);
   const [isExporting, setIsExporting] = useState(false);
+  const [highlightedLines, setHighlightedLines] = useState<HighlightedLine[]>([]);
+  const [isClient, setIsClient] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -54,113 +79,155 @@ export default function CodeBoard() {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
+      // Get highlighted lines for current code and language
+      const highlighted = await highlightCode(code, selectedLanguage);
+      
       // Set canvas dimensions for high quality export
       const scale = 2; // For retina quality
-      const padding = 40;
-      const windowPadding = selectedWindow.dots !== null ? 40 : 0;
-      const terminalPadding = selectedWindow.terminal ? 20 : 0;
+      const padding = 60;
+      const windowPadding = selectedWindow.dots !== null ? 50 : 20;
+      const terminalPadding = selectedWindow.terminal ? 30 : 0;
+      const codePadding = 30;
       
-      // Calculate text dimensions
-      ctx.font = '14px "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace';
+      // Font settings that match the interface exactly
+      const baseFontSize = 14; // Same as interface  
+      const baseLineHeight = 24; // Same as interface (1.5rem = 24px)
+      
+      // Calculate text dimensions more accurately
+      ctx.font = `${baseFontSize}px "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace`;
       const lines = code.split('\n');
-      const lineHeight = 20;
+      const lineHeight = baseLineHeight; // Use base line height
       const charWidth = 8.4;
-      const maxLineLength = Math.max(...lines.map(line => line.length));
       
-      const contentWidth = Math.max(600, maxLineLength * charWidth);
-      const contentHeight = lines.length * lineHeight + 40;
+      // Calculate actual content dimensions
+      const maxLineLength = Math.max(...lines.map(line => line.length), 20); // Minimum width
+      const contentWidth = Math.max(700, maxLineLength * charWidth + codePadding * 2);
+      const contentHeight = Math.max(200, lines.length * lineHeight + codePadding * 2);
       
-      canvas.width = (contentWidth + padding * 2) * scale;
-      canvas.height = (contentHeight + padding * 2 + windowPadding + terminalPadding) * scale;
+      const totalWidth = contentWidth + padding * 2;
+      const totalHeight = contentHeight + padding * 2 + windowPadding + terminalPadding;
+      
+      canvas.width = totalWidth * scale;
+      canvas.height = totalHeight * scale;
       
       ctx.scale(scale, scale);
       
       // Background gradient
-      const gradient = ctx.createLinearGradient(0, 0, canvas.width / scale, canvas.height / scale);
+      const gradient = ctx.createLinearGradient(0, 0, totalWidth, totalHeight);
       gradient.addColorStop(0, '#f8fafc');
-      gradient.addColorStop(1, '#e2e8f0');
+      gradient.addColorStop(0.5, '#e2e8f0');
+      gradient.addColorStop(1, '#cbd5e1');
       ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, canvas.width / scale, canvas.height / scale);
+      ctx.fillRect(0, 0, totalWidth, totalHeight);
       
-      // Window background
+      // Window background with shadow
       const windowX = padding;
       const windowY = padding;
       const windowWidth = contentWidth;
       const windowHeight = contentHeight + windowPadding + terminalPadding;
       
-      // Window shadow
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 20;
-      ctx.shadowOffsetY = 10;
+      // Enhanced window shadow
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+      ctx.shadowBlur = 30;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 15;
       
       ctx.fillStyle = selectedTheme.bg;
-      ctx.roundRect(windowX, windowY, windowWidth, windowHeight, 12);
+      ctx.roundRect(windowX, windowY, windowWidth, windowHeight, 16);
       ctx.fill();
       
       // Reset shadow
       ctx.shadowColor = 'transparent';
       ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
       
-      let codeStartY = windowY + 20;
+      let codeStartY = windowY + codePadding;
       
       // Window chrome
       if (selectedWindow.dots !== null) {
-        // Title bar
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
-        ctx.roundRect(windowX, windowY, windowWidth, 36, [12, 12, 0, 0]);
+        // Title bar with better styling
+        const titleBarHeight = 44;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+        ctx.roundRect(windowX, windowY, windowWidth, titleBarHeight, [16, 16, 0, 0]);
         ctx.fill();
         
+        // Add subtle separator line
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(windowX, windowY + titleBarHeight);
+        ctx.lineTo(windowX + windowWidth, windowY + titleBarHeight);
+        ctx.stroke();
+        
         if (selectedWindow.dots) {
-          // macOS dots
-          const dotY = windowY + 18;
+          // macOS dots with better positioning
+          const dotY = windowY + titleBarHeight / 2;
           const colors = ['#ff5f57', '#ffbd2e', '#28ca42'];
           colors.forEach((color, i) => {
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(windowX + 20 + i * 20, dotY, 6, 0, Math.PI * 2);
+            ctx.arc(windowX + 22 + i * 20, dotY, 6.5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Add subtle highlight
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+            ctx.beginPath();
+            ctx.arc(windowX + 22 + i * 20, dotY - 1, 2, 0, Math.PI * 2);
             ctx.fill();
           });
         }
         
-        // Language badge
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-        ctx.roundRect(windowX + windowWidth - 80, windowY + 10, 60, 16, 8);
+        // Language badge with better styling
+        const badgeWidth = 80;
+        const badgeHeight = 20;
+        const badgeX = windowX + windowWidth - badgeWidth - 15;
+        const badgeY = windowY + (titleBarHeight - badgeHeight) / 2;
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, 10);
         ctx.fill();
         
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        ctx.font = '10px system-ui';
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.font = `bold 11px system-ui`;
         ctx.textAlign = 'center';
-        ctx.fillText(selectedLanguage, windowX + windowWidth - 50, windowY + 21);
+        ctx.fillText(selectedLanguage, badgeX + badgeWidth / 2, badgeY + 14);
         
-        codeStartY = windowY + 56;
+        codeStartY = windowY + titleBarHeight + codePadding;
       }
       
-      // Terminal header
+      // Terminal header with improvements
       if (selectedWindow.terminal) {
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-        ctx.roundRect(windowX, codeStartY - 20, windowWidth, 20, [0, 0, 0, 0]);
+        const terminalHeaderHeight = 28;
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.roundRect(windowX, codeStartY - terminalHeaderHeight, windowWidth, terminalHeaderHeight, [0, 0, 0, 0]);
         ctx.fill();
         
-        // Terminal prompt
-        ctx.fillStyle = '#00ff00';
-        ctx.font = '12px "SF Mono", monospace';
+        // Terminal prompt with better styling
+        ctx.fillStyle = '#00ff88';
+        ctx.font = `bold 12px "SF Mono", monospace`;
         ctx.textAlign = 'left';
-        ctx.fillText('$ ', windowX + 15, codeStartY - 6);
+        ctx.fillText('❯ ', windowX + 20, codeStartY - 8);
         
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-        ctx.fillText('cat code.js', windowX + 30, codeStartY - 6);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.font = `12px "SF Mono", monospace`;
+        ctx.fillText(`cat ${selectedLanguage.toLowerCase()}_code.${getFileExtension(selectedLanguage)}`, windowX + 40, codeStartY - 8);
       }
       
-      // Code content
-      ctx.font = '14px "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace';
-      ctx.fillStyle = selectedTheme.text;
+      // Render syntax-highlighted code
+      ctx.font = `${baseFontSize}px "SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace`;
       ctx.textAlign = 'left';
       
-      lines.forEach((line, index) => {
-        const y = codeStartY + (index + 1) * lineHeight;
-        ctx.fillText(line, windowX + 20, y);
-      });
+      renderHighlightedCode(
+        ctx,
+        highlighted,
+        windowX + codePadding,
+        codeStartY,
+        lineHeight,
+        selectedTheme.name,
+        charWidth,
+        baseFontSize
+      );
       
       // Download the image
       canvas.toBlob((blob) => {
@@ -168,7 +235,7 @@ export default function CodeBoard() {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
           a.href = url;
-          a.download = `codeboard-${Date.now()}.png`;
+          a.download = `codeboard-${selectedLanguage.toLowerCase()}-${Date.now()}.png`;
           document.body.appendChild(a);
           a.click();
           document.body.removeChild(a);
@@ -224,12 +291,60 @@ export default function CodeBoard() {
     }
   };
 
+  // Update syntax highlighting when code or language changes
   useEffect(() => {
-    // Add floating animation to particles
+    if (!isClient) return;
+    
+    const updateHighlighting = async () => {
+      try {
+        const highlighted = await highlightCode(code, selectedLanguage);
+        setHighlightedLines(highlighted);
+      } catch (error) {
+        console.warn('Failed to highlight code:', error);
+        // Fallback to plain text
+        const fallback = highlightCodeSync(code, selectedLanguage);
+        setHighlightedLines(fallback);
+      }
+    };
+    
+    updateHighlighting();
+  }, [code, selectedLanguage, isClient]);
+
+  useEffect(() => {
+    // Set client-side flag and add floating animation to particles
+    setIsClient(true);
+    
     const particles = document.querySelectorAll('.particle');
     particles.forEach((particle, index) => {
       (particle as HTMLElement).style.animationDelay = `${index * 0.5}s`;
     });
+  }, []);
+  
+  // Initialize highlighting on first render
+  useEffect(() => {
+    if (isClient) {
+      const initialHighlighted = highlightCodeSync(code, selectedLanguage);
+      setHighlightedLines(initialHighlighted);
+    }
+  }, [isClient, code, selectedLanguage]);
+
+  // Synchronize scroll position between textarea and background
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const handleScroll = () => {
+      const backgrounds = document.querySelectorAll('.syntax-background');
+      backgrounds.forEach(bg => {
+        if (bg instanceof HTMLElement) {
+          bg.scrollTop = textarea.scrollTop;
+          bg.scrollLeft = textarea.scrollLeft;
+        }
+      });
+    };
+
+    textarea.addEventListener('scroll', handleScroll);
+    return () => textarea.removeEventListener('scroll', handleScroll);
   }, []);
 
   return (
@@ -417,14 +532,69 @@ export default function CodeBoard() {
               
               {/* Code Content */}
               <div className="p-6 relative">
-                <Textarea
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  className="w-full min-h-[300px] bg-transparent border-none resize-none font-mono text-sm leading-relaxed focus:outline-none focus:ring-0"
-                  style={{ color: selectedTheme.text }}
-                  placeholder="Paste your code here or drag and drop a file..."
-                />
-                <div className="absolute top-4 right-4 opacity-0 hover:opacity-100 transition-opacity duration-200">
+                <div className="relative min-h-[300px] code-editor-container">
+                  {/* Syntax highlighted background */}
+                  <div 
+                    className="syntax-background absolute inset-0 font-mono text-sm whitespace-pre-wrap break-words pointer-events-none overflow-hidden"
+                    style={{ 
+                      lineHeight: '1.5rem',
+                      fontFamily: '"SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace',
+                      fontSize: '14px',
+                      padding: '0',
+                      margin: '0'
+                    }}
+                  >
+                    {highlightedLines.length > 0 && code.trim() ? (
+                      highlightedLines.map((line, lineIndex) => (
+                        <div key={lineIndex} style={{ minHeight: '1.5rem' }}>
+                          {line.tokens.length > 0 ? (
+                            line.tokens.map((token, tokenIndex) => (
+                              <span 
+                                key={tokenIndex}
+                                style={{ 
+                                  color: getTokenColor(token.type, selectedTheme.name),
+                                }}
+                              >
+                                {token.content}
+                              </span>
+                            ))
+                          ) : (
+                            <span>&nbsp;</span>
+                          )}
+                        </div>
+                      ))
+                    ) : null}
+                  </div>
+                  
+                  {/* Interactive textarea */}
+                  <textarea
+                    ref={textareaRef}
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    className="absolute inset-0 w-full h-full bg-transparent resize-none font-mono text-sm caret-white"
+                    style={{ 
+                      lineHeight: '1.5rem',
+                      fontFamily: '"SF Mono", "Monaco", "Inconsolata", "Roboto Mono", monospace',
+                      fontSize: '14px',
+                      color: highlightedLines.length > 0 && code.trim() ? 'transparent' : selectedTheme.text,
+                      padding: '0',
+                      margin: '0',
+                      border: 'none',
+                      outline: 'none',
+                      boxShadow: 'none',
+                      background: 'transparent',
+                      minHeight: '300px',
+                      zIndex: 10
+                    }}
+                    placeholder={highlightedLines.length === 0 || !code.trim() ? "Paste your code here or drag and drop a file..." : ""}
+                    spellCheck={false}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                  />
+                </div>
+                
+                <div className="absolute top-4 right-4 opacity-0 hover:opacity-100 transition-opacity duration-200 z-20">
                   <Button size="sm" variant="ghost" className="text-white/50 hover:text-white hover:bg-white/10">
                     <Copy className="w-4 h-4" />
                   </Button>

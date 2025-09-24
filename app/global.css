@@ -150,3 +150,21 @@ html {
   backdrop-filter: blur(10px);
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
+
+/* Code editor alignment fixes */
+.code-editor-container {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+}
+
+.code-editor-container textarea,
+.code-editor-container div {
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0;
+  letter-spacing: 0;
+  word-spacing: 0;
+  text-indent: 0;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
